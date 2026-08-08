@@ -4137,8 +4137,7 @@
       }
       if (g.sourceKind === 'compressed') {
         if (g.validation === 'validated') return '<span class="chip ok">validated</span>';
-        if (g.validation === 'changed') return '<span class="chip warn">changed</span>';
-        return '<span class="chip bad">not validated</span>';
+        return '';
       }
       if (g.sourceKind === 'folder') return '<span class="chip">folder</span>';
       if (g.sourceKind === 'image') return '<span class="chip">image</span>';
@@ -5422,7 +5421,7 @@
     function baseActionFor(g) {
       if (!g) return '';
       if (!g.sourcePath) return '';
-      if (g.sourceKind === 'compressed') return 'validate-repair';
+      if (g.sourceKind === 'compressed') return 'uncompress';
       if (g.sourceKind === 'folder' || g.sourceKind === 'image') return 'compress';
       return '';
     }
@@ -5435,7 +5434,7 @@
     function actionLabel(g) {
       const action = actionFor(g);
       if (action === 'update-ampr') return 'Update APR-EMU';
-      if (action === 'validate-repair') return g.primaryAction || 'Validate and Repair';
+      if (action === 'uncompress') return g.primaryAction || 'Uncompress';
       if (action === 'compress') return g.primaryAction || 'Compress';
       return 'Start';
     }
@@ -5781,12 +5780,10 @@
           actions.push({ id: 'build-ampr-index', label: 'Build AMPR Index' });
         }
       }
-      if (sourceKind === 'compressed' || actionFor(g) === 'validate-repair') {
-        actions.push({ id: 'validate-only', label: 'Validate Only' });
+      if (sourceKind === 'compressed') {
         if (canBuildAmprIndex) {
           actions.push({ id: 'build-ampr-index', label: 'Build AMPR Index' });
         }
-        actions.push({ id: 'uncompress', label: 'Uncompress' });
       }
       if (sourceKind === 'image') {
         actions.push({ id: 'set-read-only', label: 'Set Read Only' });
@@ -6063,11 +6060,7 @@
 
     function runSecondaryAction(g, action) {
       closeSecondaryMenu();
-      if (action === 'validate-only') {
-        startAction(g, false, 'validate-only');
-      } else if (action === 'validate-repair') {
-        startAction(g, false, 'validate-repair');
-      } else if (action === 'compress') {
+      if (action === 'compress') {
         startAction(g, false, 'compress');
       } else if (action === 'uncompress') {
         showUncompressModal(g);
@@ -7446,6 +7439,10 @@
         await updateAmprForGame(g);
         return;
       }
+      if (action === 'uncompress') {
+        showUncompressModal(g);
+        return;
+      }
       if ((action === 'compress' || action === 'make-image') && !compressFormat) {
         showCompressFormatModal(g, action);
         return;
@@ -7459,18 +7456,14 @@
           url += '&destination=' + encodeURIComponent(compressionDestination);
         }
         if (usbId) url += '&usbId=' + encodeURIComponent(usbId);
-      } else if (action === 'uncompress') {
-        url = '/api/gc/uncompress?' + gameQuery(g);
       } else if (action === 'extract-image') {
         url = '/api/gc/extract-image?' + gameQuery(g);
       } else if (action === 'set-read-only') {
         url = '/api/gc/set-read-only?' + gameQuery(g);
-      } else if (action === 'validate-only') {
-        url = '/api/gc/validate-only?' + gameQuery(g);
       } else if (action === 'build-ampr-index') {
         url = '/api/gc/build-ampr-index?' + gameQuery(g);
       } else {
-        url = '/api/gc/validate-repair?' + gameQuery(g);
+        return;
       }
       if (confirmStream) url += '&confirmStream=1';
       try {

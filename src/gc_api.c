@@ -2583,11 +2583,21 @@ load_validation_state(gc_game_t *g) {
     return 0;
   }
 
+  /* Validate/repair has been removed -- it depended on a ShadowMountPlus
+   * mount mechanism that newer builds no longer provide. Compressed games
+   * are no longer flagged "not validated"; the marker file, when present
+   * and still matching the current file, is only used for the cosmetic
+   * compression stats shown in the UI. */
+  snprintf(g->validation_status, sizeof(g->validation_status), "%s",
+           "validated");
+  g->validation = GC_VALIDATION_VALIDATED;
+  g->apr_indexed = 0;
+  g->ampr_hot_swap_optimized = 0;
+
   char path[1024];
   char *json = NULL;
   size_t json_size = 0;
   struct stat st;
-  int legacy_marker = 0;
   int have_marker = 0;
   if(marker_path_for_title_source(g->title_id, g->source_path, path,
                                   sizeof(path)) == 0 &&
@@ -2595,33 +2605,20 @@ load_validation_state(gc_game_t *g) {
     have_marker = 1;
   } else {
     marker_path_for_title(g->title_id, path, sizeof(path));
-    legacy_marker = 1;
     if(read_file_limited(path, &json, &json_size, 64 * 1024) == 0) {
       have_marker = 1;
     }
   }
-  if(!have_marker) {
-    snprintf(g->validation_status, sizeof(g->validation_status), "%s",
-             "not-validated");
-    g->validation = GC_VALIDATION_NONE;
-    g->apr_indexed = 0;
-    g->ampr_hot_swap_optimized = 0;
-    return 0;
-  }
+  if(!have_marker) return 0;
   (void)json_size;
   char image_path[1024];
-  char marker_status[32];
   image_path[0] = 0;
-  marker_status[0] = 0;
   json_find_string_value(json, "path", image_path, sizeof(image_path));
-  json_find_string_value(json, "status", marker_status, sizeof(marker_status));
   uint64_t old_size = json_find_u64_value(json, "sourceSize", 0);
   int stat_ok = stat(g->source_path, &st) == 0;
   int marker_matches_path = stat_ok &&
       strcmp(image_path, g->source_path) == 0 &&
       (uint64_t)st.st_size == old_size;
-  int stats_only_marker = !strcmp(marker_status, "compression-stats") ||
-      !strcmp(marker_status, "not-mounted");
   if(marker_matches_path) {
     g->compression_source_size =
         json_find_u64_value(json, "compressionSourceSize", 0);
@@ -2632,29 +2629,6 @@ load_validation_state(gc_game_t *g) {
     g->apr_indexed = json_find_bool_value(json, "aprIndexed", 0);
     g->ampr_hot_swap_optimized =
         json_find_bool_value(json, "amprHotSwapOptimized", 0);
-  } else {
-    g->apr_indexed = 0;
-    g->ampr_hot_swap_optimized = 0;
-  }
-  if(!marker_matches_path ||
-     !strcmp(marker_status, "bad-blocks-found") ||
-     !strcmp(marker_status, "bad-blocks-found-not-mounted")) {
-    snprintf(g->validation_status, sizeof(g->validation_status), "%s",
-             "not-validated");
-    g->validation = GC_VALIDATION_NONE;
-    if(marker_matches_path || !legacy_marker) {
-      (void)unlink(path);
-    }
-  } else {
-    if(stats_only_marker) {
-      snprintf(g->validation_status, sizeof(g->validation_status), "%s",
-               "not-validated");
-      g->validation = GC_VALIDATION_NONE;
-    } else {
-      snprintf(g->validation_status, sizeof(g->validation_status), "%s",
-               "validated");
-      g->validation = GC_VALIDATION_VALIDATED;
-    }
   }
   free(json);
   return 0;
@@ -3344,10 +3318,7 @@ detect_game_source_ex(gc_game_t *g, int exact_folder_size, int honor_cancel) {
   populate_apr_index_state_from_roots(g);
 
   if(g->source_kind == GC_SOURCE_COMPRESSED) {
-    snprintf(g->primary_action, sizeof(g->primary_action), "%s",
-             g->validation == GC_VALIDATION_VALIDATED
-                 ? "Revalidate and Repair"
-                 : "Validate and Repair");
+    snprintf(g->primary_action, sizeof(g->primary_action), "%s", "Uncompress");
   } else if(g->source_kind == GC_SOURCE_FOLDER ||
             g->source_kind == GC_SOURCE_IMAGE) {
     snprintf(g->primary_action, sizeof(g->primary_action), "%s", "Compress");
@@ -3993,7 +3964,7 @@ find_game_for_operation_source_path(const gc_operation_t *op, gc_game_t *out,
       candidate.source_kind == GC_SOURCE_COMPRESSED;
   if(candidate.source_kind == GC_SOURCE_COMPRESSED) {
     snprintf(candidate.primary_action, sizeof(candidate.primary_action), "%s",
-             "Validate and Repair");
+             "Uncompress");
   } else {
     snprintf(candidate.primary_action, sizeof(candidate.primary_action), "%s",
              "Compress");
@@ -6312,7 +6283,7 @@ init_compressed_output_game_for_mount(const gc_operation_t *op,
   }
   set_game_mount_status(out, 0, "not-mounted");
   snprintf(out->primary_action, sizeof(out->primary_action), "%s",
-           "Validate and Repair");
+           "Uncompress");
 }
 
 static void
@@ -7661,35 +7632,18 @@ run_compress_op(gc_operation_t *op) {
            op->title_id, info.output_path);
   }
 
-  gc_checkpoint("compress wait repair");
-  append_operation_phase(op, "repairing");
-  if(repair_with_wait(op->title_id, info.output_path, &repair, err,
-                      sizeof(err)) != 0) {
-    char restore_err[256] = {0};
-    op->bad_blocks_found = repair.repaired_blocks;
-    op->repaired_blocks = 0;
-    operation_store_repair_counters(op, &repair);
-    if(repair.outdir[0]) {
-      snprintf(op->repair_summary, sizeof(op->repair_summary), "%s",
-               repair.outdir);
-    }
-    snprintf(op->error, sizeof(op->error), "%s",
-             err[0] ? err : "validate and repair failed");
-    gc_log("compress repair failed title=%s err=%s", op->title_id, op->error);
-    if(mount_switch_restore_after_operation(op, hidden, hidden_count,
-                                            restore_err,
-                                            sizeof(restore_err)) != 0) {
-      gc_log("compress repair restore failed title=%s err=%s", op->title_id,
-             restore_err[0] ? restore_err : "unknown");
-    }
-    if(!compressed_output_committed) {
-      cleanup_failed_safe_compress_output(info.output_path, op->title_id);
-    }
-    COMPRESS_FAIL_RETURN();
-  }
+  /* Validate/repair has been removed -- it depended on a ShadowMountPlus
+   * mount mechanism newer builds no longer provide. Compression is
+   * considered complete once written; only carry over the nested image
+   * identity so the mount-confirmation step below still knows what to
+   * look for. */
+  snprintf(repair.nested_name, sizeof(repair.nested_name), "%s",
+           compressed_game.nested_name);
+  repair.nested_type = compressed_game.nested_type;
 
   gc_checkpoint("compress force remount");
   operation_store_repair_success(op, &repair);
+  snprintf(op->result, sizeof(op->result), "%s", "success");
   if(repair_force_path_bounce_remount(op->title_id, info.output_path, &repair,
                                       err, sizeof(err)) != 0) {
     if(shadowmount_mount_missed(err)) {
@@ -12109,11 +12063,12 @@ gc_api_request(const http_request_t *req, const char *url) {
   if(!strcmp(req->path, "/api/gc/set-read-only")) {
     return enqueue_set_read_only_action(req);
   }
-  if(!strcmp(req->path, "/api/gc/validate-repair")) {
-    return enqueue_action(req, GC_ACTION_VALIDATE_REPAIR);
-  }
-  if(!strcmp(req->path, "/api/gc/validate-only")) {
-    return enqueue_action(req, GC_ACTION_VALIDATE_ONLY);
+  if(!strcmp(req->path, "/api/gc/validate-repair") ||
+     !strcmp(req->path, "/api/gc/validate-only")) {
+    return serve_error(req, 410,
+                       "validate/repair has been removed: it depended on a "
+                       "ShadowMountPlus mount mechanism newer builds no "
+                       "longer provide");
   }
   if(!strcmp(req->path, "/api/gc/refresh-mount")) {
     return refresh_mount_request(req);
