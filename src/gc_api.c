@@ -3585,8 +3585,15 @@ candidate_game_from_path(const char *source_path, const char *name,
   if(strstr(name, GC_FORCE_REMOUNT_PREFIX)) return -1;
 
   if(S_ISREG(st.st_mode) && ends_with_ci(name, ".ffpfsc")) {
-    if(strip_extension_base(name, title_id, sizeof(title_id)) != 0 ||
-       !valid_title_id(title_id)) {
+    /* Compressed output is often renamed to something descriptive, e.g.
+     * "PPSA01670 - DEATHLOOP (01.405.000).ffpfsc" rather than exactly
+     * "PPSA01670.ffpfsc". Only require the title id as a prefix, or these
+     * files silently disappear from the scan whenever they are not
+     * currently mounted (upstream issue #37). */
+    if(strlen(name) < 9) return -1;
+    memcpy(title_id, name, 9);
+    title_id[9] = 0;
+    if(!valid_title_id(title_id)) {
       return -1;
     }
     expect_kind = GC_SOURCE_COMPRESSED;
@@ -3847,7 +3854,6 @@ find_game_for_operation_source_path(const gc_operation_t *op, gc_game_t *out,
   pfs_decompress_info_t dec = {0};
   pfs_app_info_t app = {0};
   struct stat st;
-  char title_id[64] = {0};
   char err[256] = {0};
   const char *name;
 
@@ -3871,8 +3877,13 @@ find_game_for_operation_source_path(const gc_operation_t *op, gc_game_t *out,
   set_game_mount_status(&candidate, 0, "not-mounted");
 
   if(S_ISREG(st.st_mode) && ends_with_ci(name, ".ffpfsc")) {
-    if(strip_extension_base(name, title_id, sizeof(title_id)) != 0 ||
-       strcmp(title_id, op->title_id) ||
+    /* Compressed output is often renamed to something descriptive, e.g.
+     * "PPSA01670 - DEATHLOOP (01.405.000).ffpfsc" rather than exactly
+     * "PPSA01670.ffpfsc". Only require the title id as a prefix, matching
+     * how detect_game_source_ex() already identifies these files for the
+     * game list instead of requiring the whole basename to match. */
+    if(!valid_title_id(op->title_id) ||
+       strncmp(name, op->title_id, strlen(op->title_id)) ||
        pfs_decompress_detect_nested(op->source_path, &dec,
                                     err, sizeof(err)) != 0) {
       return -1;

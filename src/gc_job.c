@@ -123,7 +123,11 @@ path_is_safe(const char *p) {
     return 0;
   }
   for(const unsigned char *c = (const unsigned char *)p; *c; c++) {
-    if(*c < 0x20 || *c >= 0x7f || *c == '\\') return 0;
+    /* Reject control chars, DEL, and backslash, but allow UTF-8 multi-byte
+     * sequences (0x80-0xFE) so renamed titles with trademark/accented
+     * characters (e.g. "Uncharted\xe2\x84\xa2 ...") are not rejected
+     * outright (upstream issue #38). */
+    if(*c < 0x20 || *c == 0x7f || *c == 0xff || *c == '\\') return 0;
   }
   return 1;
 }
