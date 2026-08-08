@@ -3032,23 +3032,31 @@ wait_for_shadowmount_links(const char *title_id,
         actual_source, sizeof(actual_source), actual_mountpoint,
         sizeof(actual_mountpoint));
 
-    if(mount_ok && image_ok && system_ex_ok) {
-      gc_log("shadowmount ready title=%s mount=%s image=%s system_ex=%s:%s",
+    /* Newer ShadowMountPlus builds no longer keep a persistent nullfs bind
+     * of the title under /system_ex/app while the game isn't running -- it
+     * only redirects when the game actually launches. statfs() on that
+     * path then just reports the parent /system_ex filesystem itself
+     * (type exfatfs), so system_ex_ok is expected to be false here and is
+     * no longer a reliable success signal. mount.lnk/mount_img.lnk already
+     * prove ShadowMountPlus tracked the right source/mount pairing, so
+     * only log system_ex status for diagnostics instead of blocking on it. */
+    if(mount_ok && image_ok) {
+      gc_log("shadowmount ready title=%s mount=%s image=%s system_ex=%s:%s%s",
              title_id ? title_id : "", mount_link,
              has_image ? image_link : "",
              actual_type[0] ? actual_type : "(unknown)",
-             actual_source[0] ? actual_source : "(unknown)");
+             actual_source[0] ? actual_source : "(unknown)",
+             system_ex_ok ? "" : " (not bound; ok on newer ShadowMountPlus)");
       return 0;
     }
 
-    if(mount_ok && image_ok && !system_ex_ok && !stale_logged) {
-      gc_log("shadowmount system_ex not ready title=%s type=%s from=%s on=%s "
-             "expected=%s",
-             title_id ? title_id : "",
-             actual_type[0] ? actual_type : "(unknown)",
-             actual_source[0] ? actual_source : "(unknown)",
-             actual_mountpoint[0] ? actual_mountpoint : "(unknown)",
-             expected_mount_link ? expected_mount_link : "");
+    if(mount_ok && !image_ok && !stale_logged) {
+      gc_log("shadowmount image link not ready title=%s mount.lnk=%s "
+             "mount_img.lnk=%s expectedImage=%s",
+             title_id ? title_id : "", mount_link,
+             has_image ? image_link : "(missing)",
+             expected_image_link && expected_image_link[0]
+                 ? expected_image_link : "(absent)");
       stale_logged = 1;
     }
 
