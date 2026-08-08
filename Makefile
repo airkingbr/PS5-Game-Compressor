@@ -58,16 +58,25 @@ PFSC_ENCODER ?= runtime
 PFSC_ZLIB_LEVEL ?= 7
 PFSC_THRESHOLD_GAIN ?= 5
 PFSC_FORCE_RAW_EXEC ?= 1
-ZLIB_INCLUDE ?= /Users/jumasayeh/Developer/etaHEN/Source\ Code/include
-ZLIB_LIB ?= /Users/jumasayeh/Developer/etaHEN/Source\ Code/lib/libz.a
+ZLIB_INCLUDE ?=
+ZLIB_LIB ?=
 
 ifneq ($(filter $(PFSC_ENCODER),runtime zlib miniz),)
 CFLAGS_COMMON += -DGC_PFSC_ZLIB_LEVEL=$(PFSC_ZLIB_LEVEL)
 CFLAGS_COMMON += -DGC_PFSC_THRESHOLD_GAIN=$(PFSC_THRESHOLD_GAIN)
 CFLAGS_COMMON += -DGC_PFSC_FORCE_RAW_EXEC=$(PFSC_FORCE_RAW_EXEC)
-CFLAGS_COMMON += -I$(ZLIB_INCLUDE)
 else
 $(error unsupported PFSC_ENCODER=$(PFSC_ENCODER), expected runtime, zlib, or miniz)
+endif
+
+ifneq ($(MAKECMDGOALS),clean)
+ifeq ($(strip $(ZLIB_INCLUDE)),)
+$(error ZLIB_INCLUDE is required, e.g. make ZLIB_INCLUDE=/path/to/zlib-1.3.1 ZLIB_LIB=/path/to/zlib-1.3.1/libz.a -- see README.md Build section for how to cross-compile zlib for the PS5 target)
+endif
+ifeq ($(strip $(ZLIB_LIB)),)
+$(error ZLIB_LIB is required, e.g. make ZLIB_INCLUDE=/path/to/zlib-1.3.1 ZLIB_LIB=/path/to/zlib-1.3.1/libz.a -- see README.md Build section for how to cross-compile zlib for the PS5 target)
+endif
+CFLAGS_COMMON += -I$(ZLIB_INCLUDE)
 endif
 
 FAST_CFLAGS := $(filter-out -Os,$(CFLAGS_COMMON)) -O2

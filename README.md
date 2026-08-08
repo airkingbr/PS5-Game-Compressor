@@ -94,11 +94,35 @@ first.
 
 ## Build
 
-Set `PS5_PAYLOAD_SDK` to your local SDK path, then run `make`:
+Set `PS5_PAYLOAD_SDK` to your local SDK path. The build also needs zlib
+headers and a static `libz.a` cross-compiled for the PS5 (`x86_64-sie-ps5`)
+target; the SDK does not bundle one, so build it once from upstream zlib
+source:
 
 ```sh
 export PS5_PAYLOAD_SDK=/path/to/ps5-payload-sdk
-make
+export PATH="$PS5_PAYLOAD_SDK/bin:$PATH"
+
+wget https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+tar xzf zlib-1.3.1.tar.gz
+cd zlib-1.3.1
+mkdir obj
+for f in adler32 compress crc32 deflate infback inffast inflate inftrees trees uncompr zutil; do
+  prospero-clang -O2 -DNO_VIZ -c "$f.c" -o "obj/$f.o"
+done
+prospero-ar rcs libz.a obj/*.o
+cd ..
+```
+
+The `gz*` wrapper sources (`gzclose.c`, `gzlib.c`, `gzread.c`, `gzwrite.c`)
+are intentionally skipped: they need POSIX `open`/`read`/`close`, which the
+PS5 payload sysroot does not declare, and Game Compressor only uses the raw
+`deflate`/`inflate` stream API, not the `gzFile` API.
+
+Then build Game Compressor, pointing it at the zlib you just built:
+
+```sh
+make ZLIB_INCLUDE=/path/to/zlib-1.3.1 ZLIB_LIB=/path/to/zlib-1.3.1/libz.a
 ```
 
 The build output is:
