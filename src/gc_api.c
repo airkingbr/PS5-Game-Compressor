@@ -858,19 +858,27 @@ expected_compressed_shadow_paths(const char *outer_path,
                                  char *mounted_app_path,
                                  size_t mounted_app_path_size) {
   char outer_mount[1024];
+  char pfsc_nested_path[1024];
+  int n;
   if(!outer_path || !nested_name || !nested_name[0]) return -1;
   if(shadow_pfsc_mount_dir_for_outer(outer_path, outer_mount,
                                      sizeof(outer_mount)) != 0) {
     return -1;
   }
-  join_path(nested_image_path, nested_image_path_size, outer_mount,
+  join_path(pfsc_nested_path, sizeof(pfsc_nested_path), outer_mount,
             nested_name);
-  if(shadow_image_mount_point(nested_image_path, nested_type,
+  if(shadow_image_mount_point(pfsc_nested_path, nested_type,
                               mounted_app_path,
                               mounted_app_path_size) != 0) {
     return -1;
   }
-  return 0;
+  /* ShadowMountPlus records mount_img.lnk as the outer compressed
+   * container path itself, not the internal pfsc scratch path used
+   * above to derive the mount hash. Comparing against pfsc_nested_path
+   * here made the post-compress/repair/move remount check fail every
+   * time even though the mount was correct. */
+  n = snprintf(nested_image_path, nested_image_path_size, "%s", outer_path);
+  return n < 0 || (size_t)n >= nested_image_path_size ? -1 : 0;
 }
 
 static int
