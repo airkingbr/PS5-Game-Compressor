@@ -327,6 +327,8 @@ static const gc_storage_target_def_t GC_STORAGE_TARGETS[GC_STORAGE_TARGET_COUNT]
 static void fsync_parent_dir_best_effort(const char *path);
 static int copy_file_contents(const char *src, const char *dst, char *err,
                               size_t err_size);
+static int shadow_configured_root_for_device(const char *device_root,
+                                             char *out, size_t out_size);
 
 static const char *
 source_kind_name(gc_source_kind_t kind) {
@@ -999,13 +1001,22 @@ storage_target_def_for_id(const char *id) {
 }
 
 static int
+storage_target_effective_root(const gc_storage_target_def_t *def,
+                              char *out, size_t out_size) {
+  if(!def || !out || out_size == 0) return -1;
+  if(shadow_configured_root_for_device(def->root, out, out_size) == 0) {
+    return 0;
+  }
+  int n = snprintf(out, out_size, "%s", def->target_root);
+  return n < 0 || (size_t)n >= out_size ? -1 : 0;
+}
+
+static int
 storage_target_root_for_id(const char *id, char *root, size_t root_size,
                            const char **name_out) {
   const gc_storage_target_def_t *def = storage_target_def_for_id(id);
-  int n;
   if(!def || !root || root_size == 0) return -1;
-  n = snprintf(root, root_size, "%s", def->target_root);
-  if(n < 0 || (size_t)n >= root_size) return -1;
+  if(storage_target_effective_root(def, root, root_size) != 0) return -1;
   if(name_out) *name_out = def->name;
   return 0;
 }
@@ -1020,7 +1031,8 @@ usb_target_for_id(const char *id, gc_usb_target_t *out) {
   snprintf(out->id, sizeof(out->id), "%s", def->id);
   snprintf(out->name, sizeof(out->name), "%s", def->name);
   snprintf(out->root, sizeof(out->root), "%s", def->root);
-  snprintf(out->target_root, sizeof(out->target_root), "%s", def->target_root);
+  (void)storage_target_effective_root(def, out->target_root,
+                                      sizeof(out->target_root));
   if(space_for_path(def->root, &out->free_bytes, &out->total_bytes) != 0) {
     return -1;
   }
@@ -1280,6 +1292,33 @@ shadow_source_roots_build(gc_source_roots_t *roots) {
     source_roots_expand_one_child_level(roots);
   }
   source_roots_add_manual_entries(roots);
+}
+
+static int
+shadow_configured_root_for_device(const char *device_root,
+                                  char *out, size_t out_size) {
+  FILE *f;
+  char line[1024];
+  int found = 0;
+
+  if(!device_root || !device_root[0] || !out || out_size == 0) return -1;
+  f = fopen(GC_SHADOW_CONFIG_FILE, "r");
+  if(!f) return -1;
+  while(!found && fgets(line, sizeof(line), f)) {
+    char *key = NULL;
+    char *value = NULL;
+    if(!parse_ini_line_gc(line, &key, &value)) continue;
+    if(strcasecmp(key, "scanpath")) continue;
+    if(value[0] != '/' || !path_under_root(value, device_root)) continue;
+    size_t value_len = strlen(value);
+    while(value_len > 1 && value[value_len - 1] == '/') {
+      value[--value_len] = 0;
+    }
+    if((size_t)snprintf(out, out_size, "%s", value) >= out_size) continue;
+    found = 1;
+  }
+  fclose(f);
+  return found ? 0 : -1;
 }
 
 static int
