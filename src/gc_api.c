@@ -1924,6 +1924,41 @@ ampr_cached_version_for_sha(const char sha[65], char *version,
   return found;
 }
 
+/* SHA-256 of each libSceAmpr.sprx published in Pippo's APR-EMU manifest
+ * (https://pippo26442999.github.io/.exFAT/ampr-emu-drakmor/manifest.json),
+ * so the current version can be identified even when the installed file
+ * wasn't downloaded/cached through Game Compressor itself. New releases
+ * need a new entry added here. */
+static const struct {
+  const char *version;
+  const char *sha256;
+} AMPR_KNOWN_VERSIONS[] = {
+  { "0.2.7.6", "7c4f0c4a2c942a2dfc7aeb399434aa65aec948825f74b32d96cb118438ee7df8" },
+  { "0.2.7.5", "755cfa1bffa3b65f60cced2f162e1182d97781e200178e0e7e66b1775ef3cf4e" },
+  { "0.2.6.3", "8248448608f36d8c937c77bd35b9b5b037b14d781544a14a39491a9bf88bc83b" },
+  { "0.2.6.1", "f282d89e7f227a7b69d2087473f12197b7522562f0c268723833479f9ad970e3" },
+  { "0.2.6",   "16cee7263a7cbec8f23c334b67afe3f2e783cb575a17fe47f1c9d95ac0481fcb" },
+  { "0.2.5.3", "a21a87c3f6901a61bdf10704cae7c1aba8c16037a345147c12e59cae973137f3" },
+  { "0.2.5",   "85baf50299d04fd549f09974d990abec4dcf68226011aec34bc3b726e1ab7fb4" },
+  { "0.2.4",   "7a257448f9df11efc6b8f123aee2faba798b4580bbe3d97bdcc54e48b9abd311" },
+  { "0.2.1",   "042a53f6e98785b005af2f9fb397c832c65d620bed917c26d1e280ede9f12965" },
+  { "0.2",     "6f13898045bfa1089cd9797355fcb5ff462de9067223f392ce5c7d0cb556f277" },
+};
+
+static int
+ampr_known_version_for_sha(const char sha[65], char *version,
+                           size_t version_size) {
+  if(!sha256_hex_valid(sha) || !version || version_size == 0) return 0;
+  for(size_t i = 0;
+      i < sizeof(AMPR_KNOWN_VERSIONS) / sizeof(AMPR_KNOWN_VERSIONS[0]); i++) {
+    if(!strcasecmp(AMPR_KNOWN_VERSIONS[i].sha256, sha)) {
+      snprintf(version, version_size, "%s", AMPR_KNOWN_VERSIONS[i].version);
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static int
 ampr_intent_valid(const char *intent) {
   return !strcmp(intent ? intent : "", "latest") ||
@@ -3361,6 +3396,10 @@ detect_game_source_ex(gc_game_t *g, int exact_folder_size, int honor_cancel) {
         snprintf(g->ampr_version, sizeof(g->ampr_version), "%s",
                  selected_version);
       }
+    }
+    if(!g->ampr_version[0]) {
+      ampr_known_version_for_sha(g->ampr_sha256, g->ampr_version,
+                                 sizeof(g->ampr_version));
     }
   }
   g->ampr_original_available =
