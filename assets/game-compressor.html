@@ -3672,6 +3672,8 @@
         status.textContent = state.amprPickerBusyText || 'Preparing APR-EMU';
       } else if (state.amprPickerError) {
         status.textContent = '';
+      } else if (selectedEntry && !selectedCurrent && jobIsBusy()) {
+        status.textContent = 'Another operation is currently running on this console -- wait for it to finish before applying an APR-EMU update.';
       } else if (selectedEntry) {
         status.textContent = selectedCurrent
           ? 'Selected version is already installed.'
