@@ -1322,6 +1322,16 @@ shadow_configured_root_for_device(const char *device_root,
 }
 
 static int
+internal_game_root(char *out, size_t out_size) {
+  if(!out || out_size == 0) return -1;
+  if(shadow_configured_root_for_device("/data", out, out_size) == 0) {
+    return 0;
+  }
+  int n = snprintf(out, out_size, "%s", GC_INTERNAL_GAME_ROOT);
+  return n < 0 || (size_t)n >= out_size ? -1 : 0;
+}
+
+static int
 unmountable_game_folder_segment(const char *name) {
   if(!name || !name[0]) return 0;
   if(name[0] == '.') return 1;
@@ -1356,7 +1366,10 @@ path_has_unmountable_game_folder_segment(const char *path) {
 static int
 path_is_shadowmount_game_root(const char *path) {
   gc_source_roots_t roots;
-  if(!path || !path[0] || path_has_unmountable_game_folder_segment(path)) {
+  if(!path || !path[0]) return 0;
+  if(path_has_unmountable_game_folder_segment(path)) {
+    gc_log("shadowmount game root rejected path=%s reason=unmountable-segment",
+           path);
     return 0;
   }
   shadow_source_roots_build(&roots);
@@ -1364,6 +1377,11 @@ path_is_shadowmount_game_root(const char *path) {
     if(paths_equal_ignoring_trailing_slash(path, roots.roots[i])) {
       return 1;
     }
+  }
+  gc_log("shadowmount game root rejected path=%s custom=%d count=%zu",
+         path, roots.custom_scanpaths, roots.count);
+  for(size_t i = 0; i < roots.count && i < 32; i++) {
+    gc_log("shadowmount game root candidate[%zu]=%s", i, roots.roots[i]);
   }
   return 0;
 }
@@ -10297,7 +10315,9 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
                          "destructive image creation is not available while moving to internal SSD" :
                          "destructive compression is not available while moving to internal SSD");
     }
-    snprintf(target_root, sizeof(target_root), "%s", GC_INTERNAL_GAME_ROOT);
+    if(internal_game_root(target_root, sizeof(target_root)) != 0) {
+      return serve_error(req, 400, "bad internal storage target");
+    }
     if(!requested_delete_policy[0]) {
       snprintf(requested_delete_policy, sizeof(requested_delete_policy), "%s",
                "after");
@@ -10312,7 +10332,9 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       if(path_under_root(source_path_arg, "/data")) {
         return serve_error(req, 409, "compressed game is already on internal SSD");
       }
-      snprintf(target_root, sizeof(target_root), "%s", GC_INTERNAL_GAME_ROOT);
+      if(internal_game_root(target_root, sizeof(target_root)) != 0) {
+        return serve_error(req, 400, "bad internal storage target");
+      }
     } else if(websrv_get_query_arg(req, "usbId", usb_id, sizeof(usb_id))) {
       const gc_storage_target_def_t *def = storage_target_def_for_id(usb_id);
       if(storage_target_root_for_id(usb_id, target_root,
@@ -10535,6 +10557,7 @@ enqueue_move_action(const http_request_t *req, gc_action_t action) {
   char source_path_arg[1024] = "";
   char usb_id[16];
   char target_root[1024] = "";
+  char fallback_root[1024] = "";
   int copy_only = transfer_action_copy_only(action);
 
   const char *arg_err = read_title_source_args(req, title_id,
@@ -10555,7 +10578,11 @@ enqueue_move_action(const http_request_t *req, gc_action_t action) {
       return serve_error(req, 409,
                          "game is already on selected external storage");
     }
-    if(resolve_transfer_target_root(def->root, def->target_root,
+    if(storage_target_effective_root(def, fallback_root,
+                                     sizeof(fallback_root)) != 0) {
+      return serve_error(req, 400, "bad storage target");
+    }
+    if(resolve_transfer_target_root(def->root, fallback_root,
                                     target_root,
                                     sizeof(target_root)) != 0) {
       return serve_error(req, 400, "bad storage target");
@@ -10564,7 +10591,10 @@ enqueue_move_action(const http_request_t *req, gc_action_t action) {
     if(path_under_root(source_path_arg, "/data")) {
       return serve_error(req, 409, "game is already on internal SSD");
     }
-    if(resolve_transfer_target_root("/data", GC_INTERNAL_GAME_ROOT,
+    if(internal_game_root(fallback_root, sizeof(fallback_root)) != 0) {
+      return serve_error(req, 400, "bad internal target");
+    }
+    if(resolve_transfer_target_root("/data", fallback_root,
                                     target_root,
                                     sizeof(target_root)) != 0) {
       return serve_error(req, 400, "bad internal target");
