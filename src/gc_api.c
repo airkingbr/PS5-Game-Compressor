@@ -11510,10 +11510,16 @@ usb_request(const http_request_t *req) {
   (void)req;
   gc_usb_target_t targets[GC_STORAGE_TARGET_COUNT];
   size_t count = 0;
+  char internal_root[1024];
   discover_usb_targets(targets, GC_STORAGE_TARGET_COUNT, &count);
+  if(internal_game_root(internal_root, sizeof(internal_root)) != 0) {
+    snprintf(internal_root, sizeof(internal_root), "%s", GC_INTERNAL_GAME_ROOT);
+  }
 
   json_buf_t b = {0};
-  if(json_append(&b, "{\"ok\":true,\"usb\":[") != 0) {
+  if(json_append(&b, "{\"ok\":true,\"internalRoot\":") != 0 ||
+     json_string(&b, internal_root) != 0 ||
+     json_append(&b, ",\"usb\":[") != 0) {
     free(b.data);
     return -1;
   }

@@ -2748,7 +2748,7 @@
           <button class="format-row" type="button" data-uncompress-destination="internal" id="uncompress-internal-row">
             <div>
               <div class="history-title">Internal SSD</div>
-              <div class="history-meta">Write to /data/homebrew</div>
+              <div class="history-meta" id="uncompress-internal-meta">Write to /data/homebrew</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -2831,6 +2831,7 @@
       appVersion: '',
       history: [],
       usb: [],
+      internalRoot: '/data/homebrew',
       job: null,
       theme: window.__gcInitialTheme === 'dark' ? 'dark' : 'light',
       savedTheme: window.__gcInitialTheme === 'dark' ? 'dark' : 'light',
@@ -5077,6 +5078,7 @@
       if (fromState && fromState.id) return fromState.id;
       const data = await api('/api/gc/usb');
       state.usb = data.usb || [];
+      state.internalRoot = data.internalRoot || state.internalRoot;
       const found = state.usb.find((usb) => String(usb.targetRoot || '') === root);
       return found && found.id ? found.id : '';
     }
@@ -5092,7 +5094,9 @@
         '&deletePolicy=' + encodeURIComponent(op.deletePolicy === 'keep' ? 'keep' : 'after') +
         '&skipSpaceCheck=1';
       const targetRoot = String(op.targetRoot || '');
-      if (targetRoot === '/data/homebrew') {
+      const isInternalTarget = targetRoot === '/data/homebrew' ||
+        (!!state.internalRoot && targetRoot === state.internalRoot);
+      if (isInternalTarget) {
         url += '&destination=internal';
       } else if (targetRoot) {
         const usbId = await storageTargetIdForRoot(targetRoot);
@@ -6593,7 +6597,7 @@
     function moveTargetInternalRowHtml() {
       return '<button class="usb-row" data-target="internal">' +
         '<div><div class="history-title">Internal SSD</div>' +
-        '<div class="history-meta">/data/homebrew</div></div>' +
+        '<div class="history-meta">' + escapeHtml(state.internalRoot || '/data/homebrew') + '</div></div>' +
         '<span class="chip">Select</span>' +
         '</button>';
     }
@@ -6728,7 +6732,7 @@
       picker.innerHTML =
         compressDestinationChoiceHtml(
           'Internal SSD',
-          '/data/homebrew',
+          state.internalRoot || '/data/homebrew',
           '',
           internalSelected,
           'data-compress-destination-choice',
@@ -6920,6 +6924,7 @@
       $('uncompress-inplace-meta').textContent = state.uncompressDeletePolicy === 'keep'
         ? 'Write next to the compressed image and keep the compressed source'
         : 'Write next to the compressed image and remove it after output is ready';
+      $('uncompress-internal-meta').textContent = 'Write to ' + (state.internalRoot || '/data/homebrew');
       $('uncompress-internal-row').classList.toggle('is-hidden', !showInternal);
       $('uncompress-usb-row').classList.toggle('is-hidden', !showUsb);
       $('uncompress-usb-panel').classList.toggle('hidden', !movingToUsb);
@@ -6989,6 +6994,7 @@
         api('/api/gc/usb')
           .then((data) => {
             state.usb = data.usb || [];
+            state.internalRoot = data.internalRoot || state.internalRoot;
             if (!selectedUncompressUsb()) state.uncompressUsbId = state.usb[0] ? state.usb[0].id : '';
           })
           .catch(() => {
@@ -7084,6 +7090,7 @@
       try {
         const data = await api('/api/gc/usb');
         state.usb = data.usb || [];
+        state.internalRoot = data.internalRoot || state.internalRoot;
         renderUsbList();
       } catch (err) {
         state.usb = [];
@@ -7211,8 +7218,8 @@
 	      $('format-destination-internal').textContent = useDestinationChooser
           ? 'Choose Internal SSD or another USB'
           : (makeImage
-	          ? 'Write image to /data/homebrew'
-	          : 'Write compressed file to /data/homebrew');
+	          ? 'Write image to ' + (state.internalRoot || '/data/homebrew')
+	          : 'Write compressed file to ' + (state.internalRoot || '/data/homebrew'));
       $('format-destination-usb-title').textContent = makeImage
         ? 'Make image to external storage'
         : 'External Storage';
@@ -7300,6 +7307,7 @@
       api('/api/gc/usb')
         .then((data) => {
           state.usb = data.usb || [];
+          state.internalRoot = data.internalRoot || state.internalRoot;
           if (!selectedCompressUsb()) state.compressUsbId = state.usb[0] ? state.usb[0].id : '';
         })
         .catch(() => {
